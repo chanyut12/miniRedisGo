@@ -86,19 +86,46 @@ func TestServerInvalidCommand(t *testing.T) {
 	}
 }
 
+func TestServerShutdownClosesActiveConnections(t *testing.T) {
+	addr, shutdown := startTestServer(t)
+
+	conn := dialServer(t, addr)
+	defer conn.Close()
+
+	shutdown()
+
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline() error = %v", err)
+	}
+
+	var buf [1]byte
+	if _, err := conn.Read(buf[:]); err == nil {
+		t.Fatal("read after shutdown error = nil, want non-nil")
+	}
+}
+
 func startTestServer(t *testing.T) (string, func()) {
 	t.Helper()
 
-	port := reservePort(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("test listener error: %v", err)
+	}
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listener addr type = %T, want *net.TCPAddr", listener.Addr())
+	}
+
 	cfg := appserver.DefaultConfig()
 	cfg.Host = "127.0.0.1"
-	cfg.Port = port
+	cfg.Port = addr.Port
 	cfg.Debug = false
 	cfg.CleanupInterval = 100 * time.Millisecond
 	cfg.SnapshotPath = filepath.Join(t.TempDir(), "dump.json")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := appserver.New(cfg, logger)
+	srv := appserver.NewWithListener(cfg, logger, listener)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -120,23 +147,6 @@ func startTestServer(t *testing.T) (string, func()) {
 			t.Fatal("timeout waiting for server shutdown")
 		}
 	}
-}
-
-func reservePort(t *testing.T) int {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve port listen error: %v", err)
-	}
-	defer listener.Close()
-
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("listener addr type = %T, want *net.TCPAddr", listener.Addr())
-	}
-
-	return addr.Port
 }
 
 func waitForServer(t *testing.T, addr string) {

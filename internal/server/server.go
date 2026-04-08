@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chanyut12/miniRedisGo/internal/command"
@@ -23,6 +24,10 @@ type Server struct {
 	parser       protocol.Parser
 	executor     command.Executor
 	commandStore *store.Store
+	listener     net.Listener
+	connsMu      sync.Mutex
+	conns        map[net.Conn]struct{}
+	handlersWG   sync.WaitGroup
 }
 
 // New builds a server with its runtime dependencies.
@@ -39,7 +44,16 @@ func New(cfg Config, logger *slog.Logger) *Server {
 		parser:       protocol.NewLineParser(),
 		executor:     command.NewBasicExecutor(commandStore),
 		commandStore: commandStore,
+		conns:        make(map[net.Conn]struct{}),
 	}
+}
+
+// NewWithListener builds a server using an already-created listener. This is
+// primarily useful for tests that need to avoid port reservation races.
+func NewWithListener(cfg Config, logger *slog.Logger, listener net.Listener) *Server {
+	srv := New(cfg, logger)
+	srv.listener = listener
+	return srv
 }
 
 // Run starts the server lifecycle and accepts client connections until the
@@ -53,9 +67,13 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 
-	listener, err := net.Listen("tcp", s.cfg.Address())
-	if err != nil {
-		return err
+	listener := s.listener
+	if listener == nil {
+		var err error
+		listener, err = net.Listen("tcp", s.cfg.Address())
+		if err != nil {
+			return err
+		}
 	}
 	defer listener.Close()
 
@@ -75,17 +93,21 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			s.logger.Error("failed to close listener", "error", err)
 		}
+		s.closeActiveConnections()
 	}()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				s.handlersWG.Wait()
 				return s.saveSnapshot()
 			}
 			return err
 		}
 
+		s.trackConn(conn)
+		s.handlersWG.Add(1)
 		go s.handleConn(conn)
 	}
 }
@@ -96,6 +118,8 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	logger.Info("client connected")
 	defer func() {
+		s.untrackConn(conn)
+		s.handlersWG.Done()
 		logger.Info("client disconnected")
 		_ = conn.Close()
 	}()
@@ -184,4 +208,25 @@ func (s *Server) saveSnapshot() error {
 func writeResponse(conn net.Conn, response string) error {
 	_, err := conn.Write([]byte(response + "\n"))
 	return err
+}
+
+func (s *Server) trackConn(conn net.Conn) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	s.conns[conn] = struct{}{}
+}
+
+func (s *Server) untrackConn(conn net.Conn) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	delete(s.conns, conn)
+}
+
+func (s *Server) closeActiveConnections() {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+
+	for conn := range s.conns {
+		_ = conn.Close()
+	}
 }
