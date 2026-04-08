@@ -109,8 +109,8 @@ mini-redis-go/
 1. Clone the project.
 
 ```bash
-git clone https://github.com/your-username/mini-redis-go.git
-cd mini-redis-go
+git clone https://github.com/chanyut12/miniRedisGo.git
+cd miniRedisGo
 ```
 
 2. Run the server.
@@ -144,7 +144,7 @@ TTL language
 MiniRedisGo supports snapshot-based persistence.
 
 - Data is stored in memory during runtime.
-- Periodically or on shutdown, state can be saved to disk.
+- On graceful shutdown, state is saved to disk.
 - On restart, state can be restored from a snapshot.
 
 Planned upgrade:
@@ -170,7 +170,13 @@ The store is shared across multiple clients, so synchronization is required to a
 TTL is implemented using:
 
 - Lazy expiration during key access
-- Optional background cleanup
+- Background cleanup with a periodic worker
+
+## Current Limitations
+
+- Values are single-token strings only, so `SET` does not yet support spaces in values.
+- The protocol is line-based plain text, not full RESP.
+- Persistence is snapshot-based on startup and graceful shutdown only.
 
 ## Future Improvements
 
