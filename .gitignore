@@ -1,1 +1,11 @@
+# Documentation
 /docs
+
+# macOS
+.DS_Store
+
+# Runtime data
+/data/dump.json
+
+# Local build cache
+/.gocache
