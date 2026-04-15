@@ -9,3 +9,6 @@
 
 # Local build cache
 /.gocache
+
+# Plan
+plan.md
