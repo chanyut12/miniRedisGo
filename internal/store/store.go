@@ -198,3 +198,10 @@ func (s *Store) deleteExpiredLocked(key string) bool {
 	delete(s.expirations, key)
 	return true
 }
+
+func (s *Store) SetEx(key, value string, seconds int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.values[key] = value
+	s.expirations[key] = time.Now().Add(time.Duration(seconds) * time.Second)
+}

@@ -15,6 +15,7 @@ type Store interface {
 	Exists(key string) bool
 	Expire(key string, seconds int64) bool
 	TTL(key string) int64
+	SetEx(key, value string, seconds int64)
 }
 
 // Executor runs a parsed command and returns the response string.
@@ -49,6 +50,8 @@ func (e *BasicExecutor) Execute(cmd protocol.Command) string {
 		return e.executeExpire(cmd)
 	case "TTL":
 		return e.executeTTL(cmd)
+	case "SETEX":
+		return e.executeSetEx(cmd)
 	default:
 		return protocol.ErrorResponse(fmt.Sprintf("unknown command '%s'", cmd.Name))
 	}
@@ -155,4 +158,22 @@ func (e *BasicExecutor) executeTTL(cmd protocol.Command) string {
 	}
 
 	return strconv.FormatInt(e.store.TTL(cmd.Args[0]), 10)
+}
+
+func (e *BasicExecutor) executeSetEx(cmd protocol.Command) string {
+	if len(cmd.Args) != 3 {
+		return protocol.ErrorResponse("wrong number of arguments for 'SETEX' command")
+	}
+
+	seconds, err := strconv.ParseInt(cmd.Args[1], 10, 64)
+	if err != nil || seconds <= 0 {
+		return protocol.ErrorResponse("invalid expire time")
+	}
+
+	if e.store == nil {
+		return protocol.ErrorResponse("store not configured")
+	}
+
+	e.store.SetEx(cmd.Args[0], cmd.Args[2], seconds)
+	return "OK"
 }

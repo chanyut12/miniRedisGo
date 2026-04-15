@@ -108,3 +108,13 @@ func TestBasicExecutorExecuteUnknownCommand(t *testing.T) {
 		t.Fatalf("Execute() = %q, want %q", got, want)
 	}
 }
+
+func TestBasicExecutorExecuteSetEx(t *testing.T) {
+	executor := NewBasicExecutor(store.New())
+
+	got := executor.Execute(protocol.Command{Name: "SETEX", Args: []string{"token", "1", "abc123"}})
+	want := "OK"
+	if got != want {
+		t.Fatalf("Execute() = %q, want %q", got, want)
+	}
+}
